@@ -2,7 +2,7 @@ const downloadRelease = require('download-github-release');
 const path = require('path');
 const fs = require('fs');
 
-const user = 'openblockcc';
+const user = 'robocoders-software';
 const repo = 'openblock-firmwares';
 const outputdir = path.resolve('./firmwares');
 const leaveZipped = false;
