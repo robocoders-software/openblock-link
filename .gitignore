@@ -1,0 +1,19 @@
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build/runtime artifacts
+dist/
+build/
+out/
+coverage/
+tools/
+firmwares/
+
+# Local app data
+.openblockData/

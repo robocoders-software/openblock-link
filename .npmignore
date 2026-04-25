@@ -1,0 +1,20 @@
+# Development files
+.eslintrc.js
+/.editorconfig
+/.eslintignore
+/.gitattributes
+/.github
+/.travis.yml
+/test
+
+# Coverage created files
+/.nyc_output
+/coverage
+
+# Exclude tools
+/tools
+/firmwares
+/tmp
+
+# Exclude already built packages from testing with npm pack
+/openblock-link-*.{tar,tgz}
