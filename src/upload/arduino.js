@@ -13,6 +13,19 @@ const ARDUINO_CLI_STDERR_RED_IGNORE = /Executable segment sizes/g;
 
 const ABORT_STATE_CHECK_INTERVAL = 100;
 
+// Third-party board cores bundled in tools/Arduino/packages/ (esp32, esp8266, SparkFun avr,
+// rp2040, Maixduino k210) are NOT part of arduino-cli's built-in index. Without their
+// board_manager.additional_urls registered in the active config, arduino-cli refuses to
+// recognize them as installed — compile fails with "Platform ... not found" even though the
+// files are physically present — on every FRESH userDataPath (e.g. a new user's machine).
+const BOARD_MANAGER_ADDITIONAL_URLS = [
+    'https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json',
+    'https://arduino.esp8266.com/stable/package_esp8266com_index.json',
+    'https://raw.githubusercontent.com/sparkfun/Arduino_Boards/master/IDE_Board_Manager/package_sparkfun_index.json',
+    'https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json',
+    'http://dl.sipeed.com/MAIX/Maixduino/package_Maixduino_k210_index.json'
+];
+
 class Arduino {
     constructor (peripheralPath, config, userDataPath, toolsPath, sendstd) {
         this._peripheralPath = peripheralPath;
@@ -58,7 +71,14 @@ class Arduino {
 
             const stdout = yaml.load(buf.stdout.toString());
 
-            if (stdout.directories.data !== this._arduinoPath) {
+            // `config dump` omits the `directories:` key entirely on a brand-new config
+            // (nothing customized yet) rather than showing computed defaults — so this must
+            // NOT assume `stdout.directories` exists. Without this guard, a genuinely fresh
+            // install (no prior arduino-cli.yaml) threw here, was swallowed by the catch
+            // below, and silently skipped ALL of the setup that follows — directories.data/
+            // downloads/user AND the board_manager URLs — breaking every board, not just
+            // the third-party ones, on first run.
+            if (!stdout.directories || stdout.directories.data !== this._arduinoPath) {
                 this._sendstd(`${ansi.yellow_dark}arduino cli config has not been initialized yet.\n`);
                 this._sendstd(`${ansi.green_dark}set the path to ${this._arduinoPath}.\n`);
                 spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.data', this._arduinoPath,
@@ -67,6 +87,8 @@ class Arduino {
                     path.join(this._arduinoPath, 'staging'), '--config-file', this._configFilePath]);
                 spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.user', this._arduinoPath,
                     '--config-file', this._configFilePath]);
+                spawnSync(this._arduinoCliPath, ['config', 'add', 'board_manager.additional_urls',
+                    ...BOARD_MANAGER_ADDITIONAL_URLS, '--config-file', this._configFilePath]);
             }
         } catch (err) {
             this._sendstd(`${ansi.red}arduino cli init error:${err.toString()}\n`);
@@ -139,6 +161,14 @@ class Arduino {
                     arduinoCli.kill();
                 }
             }, ABORT_STATE_CHECK_INTERVAL);
+
+            // Without this, a missing/corrupt arduino-cli binary (ENOENT, EACCES, …) makes
+            // spawn emit 'error' instead of 'exit' — the promise then never settles and the
+            // build silently hangs forever with no feedback to the user.
+            arduinoCli.on('error', err => {
+                clearInterval(listenAbortSignal);
+                reject(new Error(`Failed to start arduino-cli: ${err.message}`));
+            });
 
             arduinoCli.on('exit', outCode => {
                 clearInterval(listenAbortSignal);
@@ -229,6 +259,13 @@ class Arduino {
                 }
             }, ABORT_STATE_CHECK_INTERVAL);
 
+            // See the matching comment in build() — without this, a missing/corrupt
+            // arduino-cli binary hangs the upload forever instead of surfacing an error.
+            arduinoCli.on('error', err => {
+                clearInterval(listenAbortSignal);
+                reject(new Error(`Failed to start arduino-cli: ${err.message}`));
+            });
+
             arduinoCli.on('exit', code => {
                 clearInterval(listenAbortSignal);
                 const wait = ms => new Promise(relv => setTimeout(relv, ms));
@@ -248,6 +285,12 @@ class Arduino {
                     } else {
                         return reject(new Error('avrdude failed to flash'));
                     }
+                    break;
+                default:
+                    // Without this, any exit code other than 0/1 (e.g. invalid FQBN, missing
+                    // board core, port busy) left this promise unsettled forever — the upload
+                    // UI would hang indefinitely with no error shown.
+                    return reject(new Error(`arduino-cli upload exited with code ${code}`));
                 }
             });
         });
