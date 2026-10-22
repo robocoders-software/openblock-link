@@ -28,7 +28,9 @@ class Microbit {
         } else if (os.platform() === 'linux') {
             this._pyPath = path.join(this._pythonPath, 'bin/python3');
         } else {
-            this._pyPath = path.join(this._pythonPath, 'python');
+            // spawn() on Windows needs the exact filename for a full path — it won't
+            // try appending .exe the way PATH-based lookups do.
+            this._pyPath = path.join(this._pythonPath, 'python.exe');
         }
 
         this._codefilePath = path.join(this._projectPath, 'main.py');
