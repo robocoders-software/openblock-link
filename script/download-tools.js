@@ -49,12 +49,15 @@ const extract7zFile = (filePath, fileName) => {
         $progress: true
     });
 
+    // progress's terminate() calls stream.clearLine() unconditionally when the bar
+    // reaches 100%, even though render() itself is isTTY-guarded — on a non-TTY
+    // stream (e.g. GitHub Actions log capture) that throws and kills the process.
     sevenStream.on('progress', progress => {
-        bar.update(progress.percent / 100);
+        if (process.stdout.isTTY) bar.update(progress.percent / 100);
     });
 
     sevenStream.on('end', () => {
-        bar.update(1);
+        if (process.stdout.isTTY) bar.update(1);
         console.log(`Successfully extracted ${fileName} to ${outputDir}`);
     });
 
@@ -109,13 +112,18 @@ const downloadAndVerifyFile = async (fileUrl, filePath, expectedChecksum) => new
 
         response.data.on('data', chunk => {
             bytesDownloaded += chunk.length;
-            bar.tick(chunk.length);
 
-            const elapsedTime = (Date.now() - startTime) / 1000;
-            const speed = (bytesDownloaded / elapsedTime) / 1024;
-            bar.update(bytesDownloaded / fileSize, {
-                speed: `${formatBytes(speed * 1024)}/s`
-            });
+            // See the comment on extract7zFile's bar: terminate() isn't isTTY-guarded,
+            // so driving the bar on a non-TTY stream (CI) crashes the process.
+            if (process.stdout.isTTY) {
+                bar.tick(chunk.length);
+
+                const elapsedTime = (Date.now() - startTime) / 1000;
+                const speed = (bytesDownloaded / elapsedTime) / 1024;
+                bar.update(bytesDownloaded / fileSize, {
+                    speed: `${formatBytes(speed * 1024)}/s`
+                });
+            }
         });
 
         response.data.pipe(writer);
